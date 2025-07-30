@@ -108,7 +108,7 @@ async function startServer() {
     const server = new ApolloServer({
         typeDefs,
         resolvers,
-        context: ({ req, res }) => createContext({ req, res }),
+        context: ({ req, res }) => createContext({ req, res, redis: redisClient }),
     });
 
     await server.start();

@@ -1,6 +1,7 @@
 import { Context } from "./context";
 import bcrypt from "bcrypt";
 import { protectedResolver } from "./protectedResolver";
+import { sendMail, generateOTP, sendOTPEmail } from "../utils/sendMail";
 
 export const resolvers = {
     Query: {
@@ -26,13 +27,71 @@ export const resolvers = {
     },
     Mutation: {
         createUser: async (_parent: unknown, args: { name: string; email: string; password: string }, context: Context) => {
-            return context.prisma.user.create({
+            // Check if user already exists
+            const existingUser = await context.prisma.user.findUnique({
+                where: { email: args.email }
+            });
+
+            if (existingUser) {
+                throw new Error('User with this email already exists');
+            }
+
+            const otp = generateOTP();
+
+            const redisKey = `otp:${args.email}`;
+            await context.redis.setEx(redisKey, 200, otp); 
+            const redisKey2 = `password:${args.email}`;
+            await context.redis.setEx(redisKey2, 200, args.password); // 200 seconds = 3 minutes
+
+            try {
+                await sendOTPEmail(args.email, otp, args.name);
+                console.log(`📧 OTP email sent to ${args.email}`);
+            } catch (error) {
+                console.error('❌ Error sending OTP email:', error);
+              
+                throw new Error('Failed to send verification email. Please try again.');
+            }
+
+            return {
+               message: 'Please check your email for verification OTP.',
+            };
+        },
+        verifyOTP: async (_parent: unknown, args: { email: string; otp: string }, context: Context) => {
+            // Get OTP from Redis
+            const redisKey = `otp:${args.email}`;
+            const storedOTP = await context.redis.get(redisKey);
+
+            if (!storedOTP) {
+                throw new Error('OTP has expired or is invalid');
+            }
+
+            if (storedOTP !== args.otp) {
+                throw new Error('Invalid OTP');
+            }
+
+            const user = await context.prisma.user.findUnique({
+                where: { email: args.email }
+            });
+            if(user) {
+                throw new Error('User already exists');
+            }
+            const redisKey2 = `password:${args.email}`;
+            const newuser = await context.prisma.user.create({
                 data: {
-                    name: args.name,
                     email: args.email,
-                    password: await bcrypt.hash(args.password, 10)
+                    password: await bcrypt.hash(redisKey2, 10)
                 }
             });
+            await context.redis.del(redisKey);
+
+            console.log(`✅ OTP verified for user ${args.email}`);
+
+            return {
+                success: true,
+                message: 'Email verified successfully!',
+                user: newuser,
+             
+            };  
         },
         createPost: async (_parent: unknown, args: { title: string; content: string; published: boolean; authorId: string }, context: Context) => {
             return context.prisma.post.create({
@@ -67,9 +126,14 @@ export const resolvers = {
                 throw new Error('You are not the author of this post');
             }
 
-            return context.prisma.post.delete({
+            await context.prisma.post.delete({  
                 where: { id: args.id }
             });
+
+            return {
+                message: 'Post deleted successfully'
+            }
+            
         },
 
         loginUser: async (_parent: unknown, args: { email: string; password: string }, context: Context) => {
