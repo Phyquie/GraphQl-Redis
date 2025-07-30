@@ -17,10 +17,14 @@ export const resolvers = {
             return context.prisma.user.findUnique({
                 where: { id: args.id }
             });
+        },
+        me: async (_parent: unknown, _args: unknown, context: Context) => {
+            return context.prisma.user.findUnique({
+                where: { id: context.userId }
+            });
         }
     },
     Mutation: {
-        // Define your mutation resolvers here
         createUser: async (_parent: unknown, args: { name: string; email: string; password: string }, context: Context) => {
             return context.prisma.user.create({
                 data: {
@@ -45,6 +49,28 @@ export const resolvers = {
                 where: { id: args.id }
             });
         },
+        deletePost: async (_parent: unknown, args: { id: string }, context: Context) => {
+
+            if(!context.userId) {
+                throw new Error('Not authenticated');
+            }
+
+            const post = await context.prisma.post.findUnique({
+                where: { id: args.id }
+            });
+
+            if(!post) {
+                throw new Error('Post not found');
+            }
+
+            if(post.authorId !== context.userId) {
+                throw new Error('You are not the author of this post');
+            }
+
+            return context.prisma.post.delete({
+                where: { id: args.id }
+            });
+        },
 
         loginUser: async (_parent: unknown, args: { email: string; password: string }, context: Context) => {
             const user = await context.prisma.user.findUnique({
@@ -63,8 +89,11 @@ export const resolvers = {
             if (!isValid) {
                 throw new Error('Invalid password');
             }
+
+           
             
             context.req.session.userId = user.id;
+            
             console.log(context.req.session)
             
         
@@ -76,6 +105,16 @@ export const resolvers = {
             
             return user;
         },
+
+        logout: async (_parent: unknown, _args: unknown, context: Context) => {
+            context.req.session.destroy((err) => {
+                if (err) {
+                    console.error('❌ Error destroying session:', err);
+                }
+            });
+            return true;
+        }       
     },
+
     // Add other resolver types as needed
 };

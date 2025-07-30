@@ -2,19 +2,24 @@ import express from "express";
 import { ApolloServer } from "apollo-server-express";
 import { typeDefs } from "./graphQl/typeDef";
 import { resolvers } from "./graphQl/resolvers";
-import prisma from "./prisma/client";
 import session from "express-session";
 import { createContext } from "./graphQl/context";
 import cookieParser from "cookie-parser";
 import { RedisStore } from 'connect-redis';
 import { createClient } from "redis";
+import cors from "cors";
+
+
 
 
 async function startServer() {
     const app = express();
     app.use(cookieParser());
+    app.use(cors({
+        origin: "https://studio.apollographql.com", 
+        credentials: true, 
+      }));
 
-    // Create redis client using redis package
     const redisClient = createClient({
         url: "redis://:YPCHpG61LuCdFuHQGCHEk8w6lgxsiQ9e@redis-10218.c14.us-east-1-2.ec2.redns.redis-cloud.com:10218"
     });
@@ -28,6 +33,7 @@ async function startServer() {
         console.log('✅ Redis is ready');
     });
     await redisClient.connect();
+    
 
     app.use(
         session({
@@ -39,6 +45,7 @@ async function startServer() {
             cookie: {
                 secure: false,
                 maxAge: 1000 * 60 * 60,
+                sameSite: 'none'
             },
         })
     );
@@ -105,7 +112,10 @@ async function startServer() {
     });
 
     await server.start();
-    server.applyMiddleware({ app });
+    server.applyMiddleware({ app ,
+        cors: false
+    }
+    );
 
     app.listen({ port: 4000 }, () => {
         console.log(`🚀 Server ready at http://localhost:4000${server.graphqlPath}`);
